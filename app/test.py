@@ -5,9 +5,15 @@ from enum import Enum, IntEnum
 from typing import Optional, Dict, List
 from pydantic import BaseModel
 from pprint import pprint
+from fastapi import HTTPException
 
 #pageid-matureimage-error/pageid-submission
 #no way to tell if mature or adult images are enabled for account or to force it when sending queries
+
+class WrongPageException(HTTPException):
+	def __init__(self, bad_page_id):
+		error_msg = f"Incorrect page ID recieved: '{bad_page_id}'"
+		super().__init__(status_code=502, detail=error_msg)
 
 class PageSize(IntEnum):
 	small = 24
@@ -83,6 +89,9 @@ def scrape_artist_gallery(artist_name: str, page_num: int = 1, perpage: PageSize
 
 	dom_input = BeautifulSoup(resp.content, features="html.parser")
 
+	page_id = get_page_id(dom_input)
+	if (page_id != 'galery'): raise WrongPageException(page_id)
+
 	browse_section = dom_input.find(id="page-galleryscraps")
 	descriptions: Optional[Dict[str, dict]]
 
@@ -112,6 +121,9 @@ def scrape_browse_posts(config: BrowsePostsConfiguration) -> List[GalleryListPos
 	))
 
 	dom_input = BeautifulSoup(resp.content, features="html.parser")
+
+	page_id = get_page_id(dom_input)
+	if (page_id != 'browse'): raise WrongPageException(page_id)
 
 	browse_section = dom_input.find(id="browse")
 	descriptions: Optional[Dict[str, dict]]
@@ -152,6 +164,9 @@ def scrape_search_posts(config: SearchPostsConfiguration) -> List[GalleryListPos
 	})
 
 	dom_input = BeautifulSoup(resp.content, features="html.parser")
+
+	page_id = get_page_id(dom_input)
+	if (page_id != 'search'): raise WrongPageException(page_id)
 
 	gallery_section = dom_input.find('section', class_='gallery')
 	descriptions: Optional[Dict[str, dict]] = None
@@ -194,3 +209,18 @@ def gallery_dom_node_to_props(dom_post: BeautifulSoup, post_descriptions: Option
 
 	return GalleryListPost(**properties)
 
+def get_page_id(full_html: BeautifulSoup) -> Optional[str]:
+	body_tag = full_html.body
+
+	if body_tag is None:
+		return None
+	
+	body_tag_id = body_tag['id']
+
+	if body_tag_id is None:
+		return None
+	
+	if body_tag_id.startswith('pageid-'):
+		return body_tag_id[7:]
+	
+	return None
