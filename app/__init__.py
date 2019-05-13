@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from typing import List
-from .test import scrape_artist_gallery, scrape_search_posts, PageSize, scrape_browse_posts, GalleryListPost, BrowsePostsConfiguration, SearchPostsConfiguration
+from .test import scrape_artist_gallery, scrape_search_posts, scrape_submission, PageSize, scrape_browse_posts, GalleryListPost, BrowsePostsConfiguration, SearchPostsConfiguration
 
 app = FastAPI()
 
@@ -16,4 +16,6 @@ async def browse_posts(config: BrowsePostsConfiguration):
 async def artist_gallery(artist_name: str, page_num: int = 1, perpage: PageSize = PageSize.medium):
 	return scrape_artist_gallery(artist_name, page_num, perpage)
 
-
+@app.get("/submission/{submission_id}/")
+async def submission(submission_id: int):
+	return scrape_submission(submission_id)

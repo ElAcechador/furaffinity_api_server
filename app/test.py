@@ -1,14 +1,11 @@
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 import json
 from enum import Enum, IntEnum
 from typing import Optional, Dict, List
 from pydantic import BaseModel
 from pprint import pprint
 from fastapi import HTTPException
-
-#pageid-matureimage-error/pageid-submission
-#no way to tell if mature or adult images are enabled for account or to force it when sending queries
 
 class WrongPageException(HTTPException):
 	def __init__(self, bad_page_id):
@@ -83,6 +80,101 @@ class GalleryListPost(BaseModel):
 	type: str
 	preview_img: str
 	permalink: str
+
+class PostDetails(GalleryListPost):
+	img: str
+	#date_posted #posted
+	category: str
+	theme: str
+	species: str
+	gender: str
+	favorites: int
+	comments: int
+	views: int
+	resolution: str
+	keywords: List[str]
+
+
+def scrape_submission(submission_id: int) -> PostDetails:
+	resp = requests.get(f"https://www.furaffinity.net/view/{submission_id}")
+
+	dom_input = BeautifulSoup(resp.content, features="html.parser")
+
+	page_id = get_page_id(dom_input)
+
+	if (page_id == 'matureimage-error'): raise HTTPException(status_code=403, detail='You are not allowed to view this image due to the content filter settings.')
+	if (page_id == 'redirect'):  raise HTTPException(status_code=401, detail='The owner of this page has elected to make it available to registered users only.')
+	if (page_id != 'submission'): raise WrongPageException(page_id)
+
+	image_node = dom_input.find(id='submissionImg')
+
+	details_table_node = image_node.find_next_sibling('table', class_='maintable')
+
+	properties = {}
+
+	properties['title'] = image_node['alt']
+	properties['preview_img'] = image_node['data-preview-src']
+	properties['img'] = image_node['data-fullview-src']
+
+	# All posts regardless of type are guaranteed to have an image
+	# TODO: See text-container in cases where the content is not an image, flash_embed when it's flash, audio-player for music
+
+	details_props = submission_details_node_to_props(details_table_node)
+	properties.update(details_props)
+
+	properties['rating'] = dom_input.find('meta', dict(name='twitter:data2'))['content']
+	properties['permalink'] = dom_input.find('meta', dict(name='twitter:url'))['content']
+	properties['id'] = submission_id
+	
+	properties['type'] = 'TODO' # TODO: Derive this from category, even `og:type` doesn't work
+
+	return PostDetails(**properties)
+
+def submission_details_node_to_props(details_table: BeautifulSoup):
+	details_rows = details_table.find_all('tr', recursive=False)
+	properties = {}
+
+
+	title_cell = details_rows[0].td
+	stats_cell = details_table.find(class_='stats-container')
+	description_cell = details_rows[1].td
+
+	#properties['title'] = title_cell.b.string
+	properties['username'] = title_cell.a.string
+	#properties['user_profile'] = title_cell.a['href']
+
+
+	stat_keys = stats_cell.findAll('b')
+	# Seek the next <br> and move back once to find the text/tags without getting bogged down by whitespace
+	stat_ends = [tag.find_next('br') for tag in stat_keys]
+	stat_next_text = [tag.previous_sibling for tag in stat_ends]
+
+	stat_dict = {
+		# Posting date is the only remaining tag at this point, and the real date is in its title attr
+		key.text[:-1].lower() : val.strip() if type(val) is NavigableString else val['title']
+		for (key, val) in zip(stat_keys, stat_next_text)
+		if key is not val
+	}
+
+	#FIXME: Date is offset by user timezone, value for guests is always GMT-5 but logged accounts might differ
+	properties.update(stat_dict)
+
+	keywords_node = stats_cell.find(id='keywords')
+
+	if (keywords_node is None):
+		properties['keywords'] = []
+	else:
+		properties['keywords'] = [tag.text for tag in stats_cell.find(id='keywords').find_all('a')]
+
+	description_avatar = description_cell.a
+	#properties['user_avatar'] = description_avatar.img['src']
+	properties['lower'] = description_avatar.img['alt']
+
+	# I don't think that can be restored to bbcode anyway
+	description_avatar.extract()
+	properties['description'] = description_cell.text.strip()
+
+	return properties
 
 def scrape_artist_gallery(artist_name: str, page_num: int = 1, perpage: PageSize = PageSize.medium) -> List[GalleryListPost]:
 	resp = requests.get(f"https://www.furaffinity.net/gallery/{artist_name}/{page_num}", params=dict( perpage = perpage.value ))
