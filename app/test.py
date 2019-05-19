@@ -82,21 +82,38 @@ class GalleryListPost(BaseModel):
 	permalink: str
 
 class PostDetails(GalleryListPost):
-	img: str
+	file_url: str
 	#date_posted #posted
 	category: str
 	theme: str
-	species: str
-	gender: str
+	species: Optional[str]
+	gender: Optional[str]
 	favorites: int
 	comments: int
 	views: int
-	resolution: str
+	resolution: Optional[str]
 	keywords: List[str]
 
 
+def submission_file_type(category: str) -> str:
+	# FA incorrectly categorizes podcasts as images
+	# Probably because you can't actually upload podcasts as audio
+	"""
+	switch($category) {
+        case '13':
+        case '14':
+        case '15' : return 'text';
+        case '16' : return 'audio';
+        default   : return 'image';
+    }
+	"""
+
+	if (category == "Story" or category == "Poetry" or category == "Prose"): return 'text'
+	if (category == "Music"): return 'audio'
+	return 'image'
+
 def scrape_submission(submission_id: int) -> PostDetails:
-	resp = requests.get(f"https://www.furaffinity.net/view/{submission_id}")
+	resp = requests.get(f"https://www.furaffinity.net/full/{submission_id}")
 
 	dom_input = BeautifulSoup(resp.content, features="html.parser")
 
@@ -107,17 +124,19 @@ def scrape_submission(submission_id: int) -> PostDetails:
 	if (page_id != 'submission'): raise WrongPageException(page_id)
 
 	image_node = dom_input.find(id='submissionImg')
+	action_bar = dom_input.find(class_='actions')
 
 	details_table_node = image_node.find_next_sibling('table', class_='maintable')
+	download_button_node = action_bar.find('a', string='Download')
 
 	properties = {}
 
 	properties['title'] = image_node['alt']
-	properties['preview_img'] = image_node['data-preview-src']
-	properties['img'] = image_node['data-fullview-src']
 
-	# All posts regardless of type are guaranteed to have an image
-	# TODO: See text-container in cases where the content is not an image, flash_embed when it's flash, audio-player for music
+	# Flash files don't have a thumbnail, meta is more reliable
+	# properties['preview_img'] = image_node['data-preview-src']
+	properties['preview_img'] = dom_input.find('meta', dict(property='og:image:secure_url'))['content']
+	properties['file_url'] = download_button_node['href']
 
 	details_props = submission_details_node_to_props(details_table_node)
 	properties.update(details_props)
@@ -126,7 +145,7 @@ def scrape_submission(submission_id: int) -> PostDetails:
 	properties['permalink'] = dom_input.find('meta', dict(name='twitter:url'))['content']
 	properties['id'] = submission_id
 	
-	properties['type'] = 'TODO' # TODO: Derive this from category, even `og:type` doesn't work
+	properties['type'] = submission_file_type(properties['category'])
 
 	return PostDetails(**properties)
 
