@@ -147,7 +147,8 @@ def scrape_submission(submission_id: int) -> PostDetails:
 	properties['permalink'] = dom_input.find('meta', dict(name='twitter:url'))['content']
 	properties['id'] = submission_id
 	
-	properties['type'] = submission_file_type(properties['category'])
+	# 'flash' is detected based on file ending and overrides anything else
+	properties['type'] = 'flash' if (properties['file_url'].endswith('.swf')) else submission_file_type(properties['category'])
 
 	return PostDetails(**properties)
 
