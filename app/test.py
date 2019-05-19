@@ -3,9 +3,11 @@ from bs4 import BeautifulSoup, NavigableString
 import json
 from enum import Enum, IntEnum
 from typing import Optional, Dict, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Schema
 from pprint import pprint
 from fastapi import HTTPException
+import dateutil.parser
+from datetime import datetime
 
 class WrongPageException(HTTPException):
 	def __init__(self, bad_page_id):
@@ -83,7 +85,7 @@ class GalleryListPost(BaseModel):
 
 class PostDetails(GalleryListPost):
 	file_url: str
-	#date_posted #posted
+	date_posted: datetime = Schema(..., description="Date at which submission was posted, offset by account timezone (which is GMT-5 with DST by default)")
 	category: str
 	theme: str
 	species: Optional[str]
@@ -175,7 +177,9 @@ def submission_details_node_to_props(details_table: BeautifulSoup):
 		if key is not val
 	}
 
-	#FIXME: Date is offset by user timezone, value for guests is always GMT-5 but logged accounts might differ
+	stat_dict['date_posted'] = dateutil.parser.parse(stat_dict['posted'])
+	del stat_dict['posted']
+
 	properties.update(stat_dict)
 
 	keywords_node = stats_cell.find(id='keywords')
