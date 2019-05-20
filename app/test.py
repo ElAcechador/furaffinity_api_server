@@ -102,12 +102,12 @@ def submission_file_type(category: str) -> str:
 	# Probably because you can't actually upload podcasts as audio
 	"""
 	switch($category) {
-        case '13':
-        case '14':
-        case '15' : return 'text';
-        case '16' : return 'audio';
-        default   : return 'image';
-    }
+		case '13':
+		case '14':
+		case '15' : return 'text';
+		case '16' : return 'audio';
+		default   : return 'image';
+	}
 	"""
 
 	if (category == "Story" or category == "Poetry" or category == "Prose"): return 'text'
@@ -204,8 +204,25 @@ def scrape_artist_gallery(artist_name: str, page_num: int = 1, perpage: PageSize
 	resp = requests.get(f"https://www.furaffinity.net/gallery/{artist_name}/{page_num}", params=dict( perpage = perpage.value ))
 
 	dom_input = BeautifulSoup(resp.content, features="html.parser")
+	return scrape_gallery_common(dom_input)
 
+def scrape_artist_scraps(artist_name: str, page_num: int = 1, perpage: PageSize = PageSize.medium) -> List[GalleryListPost]:
+	resp = requests.get(f"https://www.furaffinity.net/scraps/{artist_name}/{page_num}", params=dict( perpage = perpage.value ))
+
+	dom_input = BeautifulSoup(resp.content, features="html.parser")
+	return scrape_gallery_common(dom_input)
+
+def scrape_artist_folder(artist_name: str, folder_id: int, page_num: int = 1, perpage: PageSize = PageSize.medium) -> List[GalleryListPost]:
+	resp = requests.get(f"https://www.furaffinity.net/gallery/{artist_name}/folder/{folder_id}/_/{page_num}", params=dict( perpage = perpage.value ), allow_redirects=False)
+
+	if resp.status_code == 302: raise HTTPException(status_code=404, detail=f'User {artist_name} does not have a folder #{folder_id}')
+
+	dom_input = BeautifulSoup(resp.content, features="html.parser")
+	return scrape_gallery_common(dom_input)
+
+def scrape_gallery_common(dom_input: BeautifulSoup):
 	page_id = get_page_id(dom_input)
+	if (page_id == 'redirect'):  raise HTTPException(status_code=401, detail='The owner of this page has elected to make it available to registered users only.')
 	if (page_id != 'galery'): raise WrongPageException(page_id)
 
 	browse_section = dom_input.find(id="page-galleryscraps")
@@ -218,6 +235,16 @@ def scrape_artist_gallery(artist_name: str, page_num: int = 1, perpage: PageSize
 		descriptions = json.loads(description_json)
 
 	gallery_section = browse_section.find('section', class_='gallery')
+	
+	#TODO: Will require changing the return type
+	"""
+	folder_desc_node = browse_section.find('div', class_='folder-description')
+	
+	if folder_desc_node is not None:
+		folder_title = folder_desc_node.h4.string
+		folder_desc_node.h4.extract()
+		folder_desc = folder_desc_node.string
+	"""
 
 	return extract_gallery_data(gallery_section, descriptions)
 
@@ -297,6 +324,8 @@ def scrape_search_posts(config: SearchPostsConfiguration) -> List[GalleryListPos
 
 def extract_gallery_data(gallery_section: BeautifulSoup, post_descriptions: Optional[Dict[str, dict]]) -> List[GalleryListPost]:
 	dom_posts = gallery_section.find_all('figure')
+
+	if gallery_section.find(id='no-images'): return []
 
 	return [gallery_dom_node_to_props(dom_post, post_descriptions) for dom_post in dom_posts]
 
